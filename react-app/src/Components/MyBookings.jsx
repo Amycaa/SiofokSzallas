@@ -1,215 +1,387 @@
 import { useState, useEffect } from 'react';
 import { db } from './firebaseConfig';
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { hu } from 'date-fns/locale';
+import { hu, enUS, de } from 'date-fns/locale';
+import { useTranslation } from 'react-i18next';
+import { getTheme, FONTS, COLORS } from './theme';
 
 export default function MyBookings() {
+  const { t, i18n } = useTranslation();
   const [email, setEmail] = useState('');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState(null);
-
-  // Módosításhoz szükséges ideiglenes állapotok
+  const [editingMinGuest, setEditingMinGuest] = useState(1);
+  const [editingMaxGuest, setEditingMaxGuest] = useState(10);
   const [editCheckIn, setEditCheckIn] = useState(null);
   const [editCheckOut, setEditCheckOut] = useState(null);
+  const [editTotalGuests, setEditTotalGuests] = useState(1);
+  const [editGuestsUnder18, setEditGuestsUnder18] = useState(0);
+  const [liveNights, setLiveNights] = useState(0);
+  const [liveAmount, setLiveAmount] = useState(0);
+  const [liveIFA, setLiveIFA] = useState(0);
+  const [liveBasePrice, setLiveBasePrice] = useState(0);
+  const [pricePerPersonPerNight, setPricePerPersonPerNight] = useState(0);
+  const IFA_RATE = 750;
 
-  // Foglalások lekérése e-mail cím alapján
-  const handleFetchBookings = async (e) => {
-    e.preventDefault();
+  const [isDarkMode, setIsDarkMode] = useState(
+    window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e) => setIsDarkMode(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const theme = getTheme(isDarkMode);
+  const getLocale = () => {
+    if (i18n.language.startsWith('en')) return enUS;
+    if (i18n.language.startsWith('de')) return de;
+    return hu;
+  };
+
+  useEffect(() => {
+    if (editCheckIn && editCheckOut && pricePerPersonPerNight) {
+      const nights = Math.ceil((editCheckOut - editCheckIn) / 86400000);
+      if (nights > 0) {
+        setLiveNights(nights);
+        const base = nights * editTotalGuests * pricePerPersonPerNight;
+        setLiveBasePrice(base);
+        const ifa = nights * Math.max(0, editTotalGuests - editGuestsUnder18) * IFA_RATE;
+        setLiveIFA(ifa);
+        setLiveAmount(base + ifa);
+      } else { setLiveNights(0); setLiveBasePrice(0); setLiveIFA(0); setLiveAmount(0); }
+    } else { setLiveNights(0); setLiveBasePrice(0); setLiveIFA(0); setLiveAmount(0); }
+  }, [editCheckIn, editCheckOut, editTotalGuests, editGuestsUnder18, pricePerPersonPerNight]);
+
+  const handleFetch = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
     if (!email) return;
-
     setLoading(true);
     try {
       const q = query(
-        collection(db, "bookings"),
-        where("email", "==", email.trim().toLowerCase()),
-        where("status", "==", "confirmed")
+        collection(db, 'bookings'),
+        where('email', '==', email.trim().toLowerCase()),
+        where('status', '==', 'confirmed')
       );
-      
-      const querySnapshot = await getDocs(q);
-      const fetched = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      setBookings(fetched);
-      if (fetched.length === 0) {
-        alert("Nem találtunk aktív foglalást ezzel az e-mail címmel.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Hiba történt a keresés során.");
-    } finally {
-      setLoading(false);
-    }
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setBookings(list);
+      if (!list.length) alert(t('no_bookings_found'));
+    } catch (e) { alert(t('search_error')); }
+    finally { setLoading(false); }
   };
 
-  // Foglalás Lemondása (Státusz átírása 'cancelled'-re -> a Cloud Function ebből tudja, hogy törölni kell a naptárból)
-  const handleCancelBooking = async (bookingId) => {
-    if (!window.confirm("Biztosan le szeretné mondani ezt a foglalást?")) return;
-
+  const handleCancel = async (id) => {
+    if (!window.confirm(t('cancel_confirm'))) return;
     try {
-      const bookingRef = doc(db, "bookings", bookingId);
-      await updateDoc(bookingRef, {
-        status: "cancelled"
-      });
-      alert("Foglalás sikeresen lemondva!");
-      // Lista frissítése a felületen
-      setBookings(prev => prev.filter(b => b.id !== bookingId));
-    } catch (err) {
-      console.error(err);
-      alert("Nem sikerült lemondani a foglalást.");
+      await updateDoc(doc(db, 'bookings', id), { status: 'cancelled' });
+      alert(t('cancel_success'));
+      setBookings(prev => prev.filter(b => b.id !== id));
+    } catch (e) { alert(t('cancel_error')); }
+  };
+
+  const startEdit = (b) => {
+    setEditingBookingId(b.id);
+    setEditCheckIn(new Date(b.checkIn));
+    setEditCheckOut(new Date(b.checkOut));
+    setEditTotalGuests(b.totalGuests || 1);
+    setEditGuestsUnder18(b.guestsUnder18 || 0);
+    setEditingMinGuest(b.minGuest || 1);
+    setEditingMaxGuest(b.maxGuest || 10);
+    if (b.pricePerNight) {
+      setPricePerPersonPerNight(b.pricePerNight);
+    } else {
+      const nights = b.nights || 1;
+      const pure = (b.totalAmount || 0) - (nights * Math.max(0, (b.totalGuests || 1) - (b.guestsUnder18 || 0)) * IFA_RATE);
+      setPricePerPersonPerNight(pure / (nights * (b.totalGuests || 1)) || 0);
     }
   };
 
-  // Módosítási mód megnyitása
-  const startEdit = (booking) => {
-    setEditingBookingId(booking.id);
-    setEditCheckIn(new Date(booking.checkIn));
-    setEditCheckOut(new Date(booking.checkOut));
-  };
-
-  // Módosítás Mentése
-  const handleUpdateBooking = async (booking) => {
-    if (!editCheckIn || !editCheckOut) return;
-
-    const diffTime = editCheckOut - editCheckIn;
-    const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (nights <= 0) {
-      alert("A távozás napjának későbbinek kell lennie az érkezésnél!");
-      return;
-    }
-
+  const handleUpdate = async (b) => {
+    if (!editCheckIn || !editCheckOut || liveNights <= 0) { alert(t('date_error')); return; }
     try {
-      const formatDate = (date) => {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-      };
-      const bookingRef = doc(db, "bookings", booking.id);
-
-      await updateDoc(bookingRef, {
-        checkIn: formatDate(editCheckIn),
-        checkOut: formatDate(editCheckOut),
-        nights: nights,
-        // Itt frissül az adat -> a Cloud Function azonnal észleli és átírja a Google Naptáradat!
+      const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      await updateDoc(doc(db, 'bookings', b.id), {
+        checkIn: fmt(editCheckIn), checkOut: fmt(editCheckOut),
+        nights: liveNights, totalGuests: parseInt(editTotalGuests),
+        guestsUnder18: parseInt(editGuestsUnder18), totalAmount: liveAmount,
       });
-
-      alert("Foglalás sikeresen módosítva!");
+      alert(t('update_success'));
       setEditingBookingId(null);
-      // Kényszerítsük a listát az újraolvasásra
-      handleFetchBookings({ preventDefault: () => {} });
-    } catch (err) {
-      console.error(err);
-      alert("Hiba történt a módosítás mentése során.");
-    }
+      handleFetch();
+    } catch (e) { alert(t('update_error')); }
+  };
+
+  const inputStyle = {
+    padding: '11px 14px',
+    borderRadius: '9px',
+    border: `1px solid ${theme.borderInput}`,
+    fontSize: '15px',
+    fontFamily: FONTS.body,
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
+    background: theme.inputBg,
+    color: theme.textPrimary,
+    transition: 'border-color 0.2s',
+  };
+
+  const labelStyle = {
+    fontSize: '12px',
+    fontWeight: '700',
+    letterSpacing: '0.5px',
+    textTransform: 'uppercase',
+    color: theme.textSecondary,
+    marginBottom: '5px',
+    display: 'block',
   };
 
   return (
-    <div style={styles.container}>
-      <h2 style={styles.title}>🏠 Foglalásaim Kezelése</h2>
-      <p style={styles.subtitle}>Adja meg a foglaláskor használt e-mail címét a módosításhoz vagy lemondáshoz.</p>
+    <div style={{ fontFamily: FONTS.body, color: theme.textPrimary, padding: '8px 0' }}>
+      <h2 style={{ fontFamily: FONTS.display, fontSize: '28px', fontWeight: '700', margin: '0 0 6px 0' }}>
+        {t('manage_title')}
+      </h2>
+      <p style={{ fontSize: '15px', color: theme.textSecondary, margin: '0 0 28px 0' }}>
+        {t('manage_subtitle')}
+      </p>
 
-      {/* E-MAIL KERESŐ FORMA */}
-      <form onSubmit={handleFetchBookings} style={styles.searchForm}>
-        <input 
-          type="email" 
-          placeholder="pelda@email.com" 
+      {/* Search bar */}
+      <form onSubmit={handleFetch} style={{ display: 'flex', gap: '12px', marginBottom: '32px', flexWrap: 'wrap' }}>
+        <input
+          type="email"
+          placeholder={t('email_placeholder')}
           value={email}
           onChange={e => setEmail(e.target.value)}
-          style={styles.input}
+          style={{ ...inputStyle, flex: '1 1 260px' }}
+          onFocus={e => e.target.style.borderColor = COLORS.lagoon}
+          onBlur={e => e.target.style.borderColor = theme.borderInput}
           required
         />
-        <button type="submit" style={styles.button} disabled={loading}>
-          {loading ? 'Keresés...' : 'Foglalások lekérése'}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: '11px 24px',
+            borderRadius: '9px',
+            border: 'none',
+            background: `linear-gradient(135deg, ${COLORS.oceanMid}, ${COLORS.lagoon})`,
+            color: '#fff',
+            fontFamily: FONTS.body,
+            fontSize: '15px',
+            fontWeight: '700',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 4px 12px rgba(26,74,107,0.30)',
+            opacity: loading ? 0.7 : 1,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          {loading ? t('searching') : t('get_bookings_btn')}
         </button>
       </form>
 
-      {/* FOGLALÁSOK LISTÁJA */}
-      <div style={styles.listContainer}>
-        {bookings.map(booking => (
-          <div key={booking.id} style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h4>{booking.apartmentName}</h4>
-              <span style={styles.badge}>Megerősítve</span>
-            </div>
+      {/* Bookings list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {bookings.map(booking => {
+          const lang = i18n.language.split('-')[0];
+          const aptName = booking[`apartmentName_${lang}`] || booking.apartmentName;
+          const isEditing = editingBookingId === booking.id;
 
-            {editingBookingId === booking.id ? (
-              /* MODOSÍTÁSI NÉZET */
-              <div style={styles.editSection}>
-                <div style={styles.row}>
-                  <div style={styles.inputGroup}>
-                    <label style={styles.label}>Új érkezés:</label>
-                    <DatePicker
-                      selected={editCheckIn}
-                      onChange={date => {
-                        setEditCheckIn(date);
-                        if (editCheckOut && date >= editCheckOut) setEditCheckOut(null);
-                      }}
-                      minDate={new Date()}
-                      locale={hu}
-                      dateFormat="yyyy-MM-dd"
-                      customInput={<input style={styles.input} />}
-                    />
-                  </div>
-                  <div style={styles.inputGroup}>
-                    <label style={styles.label}>Új távozás:</label>
-                    <DatePicker
-                      selected={editCheckOut}
-                      onChange={date => setEditCheckOut(date)}
-                      minDate={editCheckIn || new Date()}
-                      locale={hu}
-                      dateFormat="yyyy-MM-dd"
-                      customInput={<input style={styles.input} />}
-                    />
-                  </div>
-                </div>
-                <div style={styles.actionRow}>
-                  <button onClick={() => handleUpdateBooking(booking)} style={styles.saveButton}>Mentés</button>
-                  <button onClick={() => setEditingBookingId(null)} style={styles.cancelButton}>Mégse</button>
-                </div>
+          return (
+            <div key={booking.id} style={{
+              borderRadius: '16px',
+              border: `1px solid ${theme.border}`,
+              background: theme.cardBg,
+              overflow: 'hidden',
+              boxShadow: '0 4px 20px rgba(13,45,74,0.07)',
+            }}>
+              {/* Card header */}
+              <div style={{
+                padding: '18px 24px',
+                background: isDarkMode ? 'rgba(26,74,107,0.25)' : 'rgba(26,74,107,0.06)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '10px',
+                borderBottom: `1px solid ${theme.border}`,
+              }}>
+                <h4 style={{ margin: 0, fontFamily: FONTS.display, fontSize: '18px', color: theme.textPrimary }}>
+                  🏖 {aptName}
+                </h4>
+                <span style={{
+                  background: COLORS.emerald,
+                  color: '#fff',
+                  padding: '4px 12px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  letterSpacing: '0.5px',
+                  textTransform: 'uppercase',
+                }}>
+                  {t('confirmed')}
+                </span>
               </div>
-            ) : (
-              /* SIMA KIJELZÉSI NÉZET */
-              <div>
-                <p><strong>Időpont:</strong> {booking.checkIn} - {booking.checkOut}-ig ({booking.nights} éjszaka)</p>
-                <p><strong>Vendégek:</strong> {booking.totalGuests} fő</p>
-                <p><strong>Fizetendő összeg:</strong> {booking.totalAmount?.toLocaleString()} Ft</p>
-                
-                <div style={styles.actionRow}>
-                  <button onClick={() => startEdit(booking)} style={styles.editButton}>Időpont módosítása</button>
-                  <button onClick={() => handleCancelBooking(booking.id)} style={styles.deleteButton}>Foglalás lemondása</button>
-                </div>
+
+              <div style={{ padding: '20px 24px' }}>
+                {isEditing ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                      <div>
+                        <label style={labelStyle}>{t('new_arrival')}</label>
+                        <DatePicker
+                          selected={editCheckIn}
+                          onChange={date => { setEditCheckIn(date); if (editCheckOut && date >= editCheckOut) setEditCheckOut(null); }}
+                          minDate={new Date()} locale={getLocale()} dateFormat="yyyy-MM-dd"
+                          customInput={<input style={inputStyle} />}
+                        />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>{t('new_departure')}</label>
+                        <DatePicker
+                          selected={editCheckOut} onChange={date => setEditCheckOut(date)}
+                          minDate={editCheckIn || new Date()} locale={getLocale()} dateFormat="yyyy-MM-dd"
+                          customInput={<input style={inputStyle} />}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                      <div>
+                        <label style={labelStyle}>{t('guests_limit_label', { min: editingMinGuest, max: editingMaxGuest })}</label>
+                        <input
+                          type="number" min={editingMinGuest} max={editingMaxGuest} value={editTotalGuests}
+                          onChange={e => {
+                            const v = Math.max(editingMinGuest, Math.min(editingMaxGuest, parseInt(e.target.value) || editingMinGuest));
+                            setEditTotalGuests(v);
+                            if (editGuestsUnder18 > v) setEditGuestsUnder18(v);
+                          }}
+                          style={inputStyle}
+                          onFocus={e => e.target.style.borderColor = COLORS.lagoon}
+                          onBlur={e => e.target.style.borderColor = theme.borderInput}
+                        />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>{t('under_18')}</label>
+                        <input
+                          type="number" min="0" max={editTotalGuests} value={editGuestsUnder18}
+                          onChange={e => setEditGuestsUnder18(Math.min(editTotalGuests, parseInt(e.target.value) || 0))}
+                          style={inputStyle}
+                          onFocus={e => e.target.style.borderColor = COLORS.lagoon}
+                          onBlur={e => e.target.style.borderColor = theme.borderInput}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Live summary */}
+                    {liveNights > 0 && (
+                      <div style={{
+                        padding: '18px 20px',
+                        borderRadius: '12px',
+                        border: `1px solid ${theme.border}`,
+                        background: theme.summaryBg,
+                      }}>
+                        {[
+                          { label: t('summary_rent', { nights: liveNights, guests: editTotalGuests, price: pricePerPersonPerNight.toLocaleString() }), value: `${liveBasePrice.toLocaleString()} ${t('currency')}` },
+                          { label: t('summary_ifa'), value: `${liveIFA.toLocaleString()} ${t('currency')}` },
+                        ].map((row, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${theme.hr}` }}>
+                            <span style={{ fontSize: '13px', color: theme.textSecondary }}>{row.label}</span>
+                            <span style={{ fontSize: '13px', color: theme.textPrimary, fontWeight: '600' }}>{row.value}</span>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '12px' }}>
+                          <span style={{ fontFamily: FONTS.display, fontSize: '16px', fontWeight: '700', color: theme.textPrimary }}>{t('summary_total')}</span>
+                          <span style={{ fontFamily: FONTS.display, fontSize: '18px', fontWeight: '700', color: COLORS.coral }}>{liveAmount.toLocaleString()} {t('currency')}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => handleUpdate(booking)}
+                        style={{
+                          flex: 1, minWidth: '120px', padding: '13px 16px', borderRadius: '10px', border: 'none',
+                          background: `linear-gradient(135deg, ${COLORS.emerald}, ${COLORS.lagoon})`,
+                          color: '#fff', fontFamily: FONTS.body, fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+                          boxShadow: '0 4px 14px rgba(39,174,122,0.30)',
+                        }}
+                      >
+                        ✓ {t('save_btn')}
+                      </button>
+                      <button
+                        onClick={() => setEditingBookingId(null)}
+                        style={{
+                          flex: 1, minWidth: '120px', padding: '13px 16px', borderRadius: '10px',
+                          border: `1px solid ${theme.border}`,
+                          background: theme.btnOutlineBg, color: theme.btnOutlineText,
+                          fontFamily: FONTS.body, fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                        }}
+                      >
+                        {t('cancel_btn')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', marginBottom: '16px' }}>
+                      {[
+                        { icon: '📅', label: t('date_label'), value: `${booking.checkIn} – ${booking.checkOut} (${t('nights_count', { count: booking.nights })})` },
+                        { icon: '👥', label: t('guests_label'), value: `${booking.totalGuests} fő${booking.guestsUnder18 > 0 ? (' · ' + t('adult_under18', { count: booking.guestsUnder18 })) : ''}` },
+                        { icon: '💰', label: t('total_pay_ifa'), value: `${booking.totalAmount?.toLocaleString()} ${t('currency')}`, highlight: true },
+                      ].map((row, i) => (
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <span style={{ fontSize: '12px', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.4px', fontWeight: '700' }}>
+                            {row.icon} {row.label}
+                          </span>
+                          <span style={{
+                            fontSize: '15px',
+                            color: row.highlight ? COLORS.coral : theme.textPrimary,
+                            fontWeight: row.highlight ? '700' : '400',
+                            fontFamily: row.highlight ? FONTS.display : FONTS.body,
+                          }}>
+                            {row.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+                      <button
+                        onClick={() => startEdit(booking)}
+                        style={{
+                          flex: '1 1 140px', padding: '11px 16px', borderRadius: '9px', border: 'none',
+                          background: COLORS.amber, color: '#fff',
+                          fontFamily: FONTS.body, fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+                          boxShadow: '0 3px 10px rgba(232,160,32,0.30)',
+                        }}
+                      >
+                        ✏️ {t('edit_date_btn')}
+                      </button>
+                      <button
+                        onClick={() => handleCancel(booking.id)}
+                        style={{
+                          flex: '1 1 140px', padding: '11px 16px', borderRadius: '9px', border: 'none',
+                          background: COLORS.coral, color: '#fff',
+                          fontFamily: FONTS.body, fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+                          boxShadow: '0 3px 10px rgba(224,92,75,0.30)',
+                        }}
+                      >
+                        🗑 {t('cancel_booking_btn')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
-
-const styles = {
-  container: { maxWidth: '600px', margin: '40px auto', padding: '20px', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', fontFamily: '"Segoe UI", sans-serif' },
-  title: { color: '#2c3e50', textAlign: 'center', marginBottom: '5px' },
-  subtitle: { color: '#7f8c8d', textAlign: 'center', fontSize: '14px', marginBottom: '25px' },
-  searchForm: { display: 'flex', gap: '10px', marginBottom: '30px' },
-  input: { flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px', outline: 'none' },
-  button: { padding: '12px 20px', background: '#3498db', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' },
-  listContainer: { display: 'flex', flexDirection: 'column', gap: '15px' },
-  card: { padding: '20px', borderRadius: '10px', border: '1px solid #e1e8ed', background: '#fafbfc' },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' },
-  badge: { background: '#2ecc71', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' },
-  row: { display: 'flex', gap: '10px', marginBottom: '15px' },
-  inputGroup: { flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' },
-  label: { fontSize: '12px', fontWeight: 'bold', color: '#34495e' },
-  actionRow: { display: 'flex', gap: '10px', marginTop: '15px' },
-  editButton: { flex: 1, padding: '10px', background: '#f39c12', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  deleteButton: { flex: 1, padding: '10px', background: '#e74c3c', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  saveButton: { padding: '10px 20px', background: '#2ecc71', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  cancelButton: { padding: '10px 20px', background: '#95a5a6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }
-};
