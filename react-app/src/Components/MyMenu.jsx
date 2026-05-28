@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { getTheme, FONTS, COLORS, TRANSITIONS } from './theme';
+import { getTheme, FONTS, COLORS } from './theme';
 
 export default function MyMenu() {
   const { t, i18n } = useTranslation();
@@ -38,7 +38,7 @@ export default function MyMenu() {
     textTransform: 'uppercase',
     padding: '8px 14px',
     borderRadius: '6px',
-    transition: TRANSITIONS.fast,
+    transition: 'all 0.2s ease', 
     color: 'rgba(255,255,255,0.70)',
     whiteSpace: 'nowrap',
   };
@@ -56,9 +56,8 @@ export default function MyMenu() {
     fontSize: '13px',
     fontWeight: active ? '700' : '400',
     fontFamily: FONTS.body,
-    // ✅ FIX: A navbar mindig sötét, ezért mindig fehér tónusú szín
     color: active ? '#ffffff' : 'rgba(255,255,255,0.50)',
-    transition: TRANSITIONS.fast,
+    transition: 'all 0.2s ease', 
     padding: '4px 7px',
     letterSpacing: '0.5px',
   });
@@ -66,15 +65,52 @@ export default function MyMenu() {
   return (
     <>
       <style>{`
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow-x: hidden;
+          width: 100%;
+        }
+        
+        * {
+          box-sizing: border-box;
+        }
+
         @media (max-width: 520px) {
           .siofok-nav-links { display: none !important; }
+          .siofok-desktop-sep { display: none !important; } /* 🛠️ Mobilon elrejtjük a felesleges nagy elválasztót */
           .siofok-nav-links.open { display: flex !important; }
           .siofok-hamburger { display: flex !important; }
           .siofok-nav-lang { gap: 1px !important; }
         }
+        
         @media (min-width: 521px) {
           .siofok-hamburger { display: none !important; }
           .siofok-nav-links { display: flex !important; }
+        }
+
+        /* 🛠️ ÚJ SZABÁLYOK EXTRA KIS KIJELZŐKRE (380px alatt, pl. 350px-nél) */
+        @media (max-width: 380px) {
+          .siofok-nav-main {
+            padding: 0 10px !important; /* Kisebb oldalsó margó a menüsávnak */
+          }
+          .siofok-logo-text {
+            font-size: 16px !important; /* Kisebb logó szöveg, hogy elférjen */
+          }
+          .siofok-logo-emoji {
+            font-size: 18px !important;
+          }
+          .siofok-lang-btn {
+            padding: 4px 4px !important; /* Összébb húzzuk a nyelvválasztó gombokat */
+            font-size: 11px !important;
+          }
+          .siofok-lang-sep {
+            font-size: 10px !important;
+          }
+          .siofok-hamburger {
+            padding: 6px 8px !important; /* Kisebb hamburger gomb padding */
+            margin-left: 2px !important;
+          }
         }
       `}</style>
 
@@ -85,15 +121,17 @@ export default function MyMenu() {
         position: 'sticky',
         top: 0,
         zIndex: 100,
+        width: '100%',
       }}>
         {/* Fő sor */}
-        <div style={{
+        <div className="siofok-nav-main" style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           padding: '0 20px',
           height: '60px',
-          gap: '8px',
+          gap: '4px',
+          maxWidth: '100%',
         }}>
           {/* Logo */}
           <NavLink to="/" style={{
@@ -104,16 +142,16 @@ export default function MyMenu() {
             letterSpacing: '0.3px',
             display: 'flex',
             alignItems: 'center',
-            gap: '7px',
+            gap: '6px',
             textDecoration: 'none',
             flexShrink: 0,
           }}>
-            <span style={{ fontSize: '22px' }}>🌊</span>
-            SiófokSzállás
+            <span className="siofok-logo-emoji" style={{ fontSize: '22px' }}>🌊</span>
+            <span className="siofok-logo-text">SiófokSzállás</span>
           </NavLink>
 
           {/* Jobb oldal: nav linkek (desktop) + nyelv + hamburger */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
 
             {/* Nav linkek – desktop */}
             <div className="siofok-nav-links" style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
@@ -132,21 +170,22 @@ export default function MyMenu() {
               </NavLink>
             </div>
 
-            {/* Elválasztó */}
-            <span style={{ color: 'rgba(255,255,255,0.15)', margin: '0 6px', fontSize: '14px' }}>|</span>
+            {/* Elválasztó (csak desktopon látszik) */}
+            <span className="siofok-desktop-sep" style={{ color: 'rgba(255,255,255,0.15)', margin: '0 6px', fontSize: '14px' }}>|</span>
 
             {/* Nyelv gombok */}
             <div className="siofok-nav-lang" style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
               {['hu', 'en', 'de'].map((lng, i, arr) => (
                 <React.Fragment key={lng}>
                   <button
+                    className="siofok-lang-btn"
                     onClick={() => i18n.changeLanguage(lng)}
                     style={langBtnStyle(i18n.language.startsWith(lng))}
                   >
                     {lng.toUpperCase()}
                   </button>
                   {i < arr.length - 1 && (
-                    <span style={{ color: 'rgba(255,255,255,0.20)', fontSize: '11px' }}>|</span>
+                    <span className="siofok-lang-sep" style={{ color: 'rgba(255,255,255,0.20)', fontSize: '11px' }}>|</span>
                   )}
                 </React.Fragment>
               ))}
@@ -157,7 +196,7 @@ export default function MyMenu() {
               className="siofok-hamburger"
               onClick={(e) => { e.stopPropagation(); setMenuOpen(o => !o); }}
               style={{
-                display: 'none', // alapból elrejtve, CSS mutatja mobilon
+                display: 'none', 
                 background: 'rgba(255,255,255,0.10)',
                 border: '1px solid rgba(255,255,255,0.20)',
                 borderRadius: '7px',

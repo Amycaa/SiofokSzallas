@@ -1,6 +1,7 @@
 /**
  * SiófokSzállás – Unified Mediterranean Design System
  * Mediterrán kékes, letisztult, dark/light kompatibilis
+ * Javítva: Egységes rendes számmagasságok és teljes HU/DE/EN karaktertámogatás
  */
 
 export const COLORS = {
@@ -22,55 +23,37 @@ export const COLORS = {
   // === Szövegek ===
   textDarkPrimary:   '#f0f4f8',   // dark fő szöveg
   textDarkSecondary: '#8eafc7',   // dark muted
-  textLightPrimary:  '#0d2d4a',   // light fő szöveg
-  textLightSecondary:'#4a6a80',   // light muted
+  textLightPrimary:  '#0d2d4a',
+  textLightSecondary:'#506b82',
 
-  // === Kártyák / felületek ===
-  cardDark:    'rgba(255,255,255,0.05)',
-  cardDarkHover:'rgba(255,255,255,0.09)',
-  cardLight:   '#ffffff',
-  cardLightHover:'#fafcff',
+  // === Háttér ===
+  bgLight:     '#f5efe6',
+  bgDark:      '#0d2d4a',
+  cardLight:   '#f9f6f2',
+  cardDark:    '#143b5c',
+  cardLightHover: '#f3ede4',
+  cardDarkHover:  '#1a4a6b',
+  inputBgLight:   '#ffffff',
+  inputBgDark:    '#1a4a6b',
 
   // === Szegélyek ===
-  borderDark:  'rgba(255,255,255,0.12)',
-  borderLight: 'rgba(13,45,74,0.14)',
-
-  // === Inputok ===
-  inputBgDark:  '#112840',
-  inputBgLight: '#ffffff',
+  borderLight: '#e8ddd0',
+  borderDark:  '#1a4a6b',
 };
 
+// Új, teljeskörűen nemzetközi betűtípusok egységes számmagassággal
 export const FONTS = {
-  display: "'Playfair Display', Georgia, serif",
-  body:    "'Lato', 'Segoe UI', sans-serif",
+  display: "'Lora', Georgia, serif",             // Címekhez és árakhoz (Lining-numbers: minden szám egyforma magas)
+  body:    "'Inter', 'Segoe UI', sans-serif",    // Általános szövegekhez, gombokhoz, űrlapokhoz
 };
 
-export const SHADOWS = {
-  card:    '0 4px 24px rgba(13,45,74,0.10)',
-  cardHover: '0 8px 32px rgba(13,45,74,0.18)',
-  button:  '0 4px 14px rgba(26,74,107,0.30)',
-  modal:   '0 20px 60px rgba(0,0,0,0.35)',
-};
+// Frissített Google Fonts betöltő link a projekthez
+export const GOOGLE_FONTS_URL =
+  'https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap';
 
-export const RADIUS = {
-  sm:  '6px',
-  md:  '10px',
-  lg:  '16px',
-  xl:  '24px',
-  pill:'999px',
-};
-
-export const TRANSITIONS = {
-  fast:   'all 0.15s ease',
-  normal: 'all 0.25s ease',
-  slow:   'all 0.4s ease',
-};
-
-/** Hook-like helper: returns theme tokens based on isDarkMode bool */
-export function getTheme(isDarkMode) {
+export const getTheme = (isDarkMode) => {
   return {
-    // Háttér
-    pageBg:      isDarkMode ? COLORS.oceanDeep   : COLORS.sand,
+    bg:          isDarkMode ? COLORS.bgDark    : COLORS.bgLight,
     cardBg:      isDarkMode ? COLORS.cardDark    : COLORS.cardLight,
     cardBgHover: isDarkMode ? COLORS.cardDarkHover : COLORS.cardLightHover,
     inputBg:     isDarkMode ? COLORS.inputBgDark : COLORS.inputBgLight,
@@ -95,14 +78,7 @@ export function getTheme(isDarkMode) {
     warning:    COLORS.amber,
 
     // Gombok
-    btnOutlineBg:   isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,45,74,0.06)',
+    btnOutlineBg:   isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,45,74,0.02)',
     btnOutlineText: isDarkMode ? COLORS.textDarkPrimary   : COLORS.textLightPrimary,
-
-    // Footer / navbar
-    navBg: COLORS.oceanDeep,
   };
-}
-
-/** Google Fonts import string — add to index.html or inject via <style> */
-export const GOOGLE_FONTS_URL =
-  'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@300;400;700&display=swap';
+};

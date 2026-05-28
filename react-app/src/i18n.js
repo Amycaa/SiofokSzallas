@@ -5,6 +5,10 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 const resources = {
   hu: {
     translation: {
+      "success": "Siker",
+      "error": "Hiba",
+      "yes": "Igen",
+      "guest_count": "{{count}} fő",
       "footer_contact": "Kapcsolat / Elérhetőség:",
       "footer_last_update": "Az adatok (árak, képek, leírások) utolsó frissítése:",
       "currency": "Ft", 
@@ -81,6 +85,10 @@ const resources = {
   },
   en: {
     translation: {
+      "success": "Success",
+      "error": "Error",
+      "yes": "Yes",
+      "guest_count": "{{count}} guests",
       "footer_contact": "Contact Information:",
       "footer_last_update": "Last update of details (prices, images, descriptions):",
       "currency": "HUF", 
@@ -157,6 +165,10 @@ const resources = {
   },
   de: {
     translation: {
+      "success": "Erfolg",
+      "error": "Fehler",
+      "yes": "Ja",
+      "guest_count": "{{count}} Personen",
       "footer_contact": "Kontakt / Erreichbarkeit:",
       "footer_last_update": "Letzte Aktualisierung der Daten (Preise, Bilder, Beschreibungen):", 
       "currency": "HUF", 

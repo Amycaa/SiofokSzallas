@@ -1,188 +1,107 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { db } from './firebaseConfig';
+import { collection, getDocs } from 'firebase/firestore';
 import { getTheme, FONTS, COLORS } from './theme';
 
-export default function ConfirmModal({
-  isOpen,
-  type = 'success',
-  title,
-  message,
-  onConfirm,
-  onCancel,
-  confirmText = 'OK',
-  cancelText = 'Mégse',
-  isDarkMode = false,
-}) {
+export default function Footer() {
+  const { t } = useTranslation();
+  const [lastUpdateDate, setLastUpdateDate] = useState('2026. 05. 28.');
+  const [isDarkMode, setIsDarkMode] = useState(
+    window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
   useEffect(() => {
-    const handler = (e) => {
-      if (e.key === 'Escape' && isOpen) { onCancel?.() || onConfirm?.(); }
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e) => setIsDarkMode(e.matches);
+    mq.addEventListener('change', handler);
+
+    const fetchLastUpdate = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'apartments'));
+        let latest = null;
+        snap.docs.forEach(doc => {
+          const d = doc.data();
+          if (d.updatedAt) {
+            const dt = d.updatedAt.toDate ? d.updatedAt.toDate() : new Date(d.updatedAt);
+            if (!latest || dt > latest) latest = dt;
+          }
+        });
+        if (latest && !isNaN(latest)) {
+          setLastUpdateDate(
+            `${latest.getFullYear()}. ${String(latest.getMonth() + 1).padStart(2, '0')}. ${String(latest.getDate()).padStart(2, '0')}.`
+          );
+        }
+      } catch (e) { console.error(e); }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen]);
-
-  useEffect(() => {
-    document.body.style.overflow = isOpen ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
+    fetchLastUpdate();
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const theme = getTheme(isDarkMode);
 
-  const accentMap = {
-    success: COLORS.emerald,
-    error:   COLORS.coral,
-    confirm: COLORS.amber,
-  };
-  const accent = accentMap[type] || COLORS.lagoon;
-
-  const icons = {
-    success: (
-      <svg viewBox="0 0 52 52" style={{ width: '64px', height: '64px' }}>
-        <circle cx="26" cy="26" r="24" fill="none" stroke={accent} strokeWidth="2"
-          style={{ strokeDasharray: 150, strokeDashoffset: 150, animation: 'drawC 0.5s 0.1s ease forwards' }} />
-        <path fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-          d="M15 27 l8 8 l14 -16"
-          style={{ strokeDasharray: 50, strokeDashoffset: 50, animation: 'drawC 0.4s 0.5s ease forwards' }} />
-      </svg>
-    ),
-    error: (
-      <svg viewBox="0 0 52 52" style={{ width: '64px', height: '64px' }}>
-        <circle cx="26" cy="26" r="24" fill="none" stroke={accent} strokeWidth="2"
-          style={{ strokeDasharray: 150, strokeDashoffset: 150, animation: 'drawC 0.5s 0.1s ease forwards' }} />
-        <line x1="17" y1="17" x2="35" y2="35" stroke={accent} strokeWidth="3" strokeLinecap="round"
-          style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'drawC 0.3s 0.5s ease forwards' }} />
-        <line x1="35" y1="17" x2="17" y2="35" stroke={accent} strokeWidth="3" strokeLinecap="round"
-          style={{ strokeDasharray: 30, strokeDashoffset: 30, animation: 'drawC 0.3s 0.6s ease forwards' }} />
-      </svg>
-    ),
-    confirm: (
-      <svg viewBox="0 0 52 52" style={{ width: '64px', height: '64px' }}>
-        <circle cx="26" cy="26" r="24" fill="none" stroke={accent} strokeWidth="2"
-          style={{ strokeDasharray: 150, strokeDashoffset: 150, animation: 'drawC 0.5s 0.1s ease forwards' }} />
-        <text x="26" y="35" textAnchor="middle" fontSize="26" fontWeight="700" fill={accent}
-          style={{ opacity: 0, animation: 'fadeIn 0.3s 0.5s ease forwards' }}>?</text>
-      </svg>
-    ),
-  };
-
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(0,0,0,0.55)',
-        backdropFilter: 'blur(6px)',
-        padding: '20px',
-      }}
-      onClick={e => { if (e.target === e.currentTarget) { onCancel?.() || onConfirm?.(); } }}
-    >
-      <style>{`
-        @keyframes modalPop {
-          from { opacity: 0; transform: scale(0.88) translateY(16px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-        @keyframes drawC { to { stroke-dashoffset: 0; } }
-        @keyframes fadeIn { to { opacity: 1; } }
-      `}</style>
+    <footer style={{
+      marginTop: '60px',
+      padding: '24px 32px',
+      borderRadius: '16px',
+      border: `1px solid ${theme.border}`,
+      background: isDarkMode ? 'rgba(26,74,107,0.18)' : 'rgba(26,74,107,0.05)',
+      fontFamily: FONTS.body,
+      maxWidth: '1200px',
+      margin: '60px auto 0 auto',
+    }}>
+      {/* Divider with wave */}
+      <div style={{
+        height: '2px',
+        background: `linear-gradient(90deg, transparent, ${COLORS.lagoon}, transparent)`,
+        marginBottom: '20px',
+        borderRadius: '2px',
+        opacity: 0.5,
+      }} />
 
       <div style={{
-        background: theme.cardBg,
-        border: `1px solid ${theme.border}`,
-        borderRadius: '20px',
-        width: '100%',
-        maxWidth: '400px',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.30)',
-        overflow: 'hidden',
-        animation: 'modalPop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+        display: 'flex',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: '16px',
       }}>
-        {/* Top accent bar */}
-        <div style={{
-          height: '4px',
-          background: `linear-gradient(90deg, ${accent}, ${accent}88)`,
-        }} />
-
-        <div style={{
-          padding: '32px 28px 24px',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px',
-        }}>
-          {icons[type]}
-
-          <h3 style={{
-            margin: 0,
+        {/* Brand */}
+        <div>
+          <div style={{
             fontFamily: FONTS.display,
-            fontSize: '20px',
+            fontSize: '18px',
             fontWeight: '700',
             color: theme.textPrimary,
-            textAlign: 'center',
-          }}>
-            {title}
-          </h3>
-
-          {message && (
-            <p style={{
-              margin: '0 0 6px',
-              fontSize: '15px',
-              color: theme.textSecondary,
-              textAlign: 'center',
-              lineHeight: '1.6',
-              fontFamily: FONTS.body,
-            }}>
-              {message}
-            </p>
-          )}
-
-          <div style={{
+            marginBottom: '4px',
             display: 'flex',
-            gap: '10px',
-            width: '100%',
-            marginTop: '6px',
-            justifyContent: type === 'confirm' ? 'space-between' : 'center',
+            alignItems: 'center',
+            gap: '6px',
           }}>
-            {type === 'confirm' && (
-              <button
-                onClick={onCancel}
-                style={{
-                  flex: 1,
-                  padding: '12px 16px',
-                  borderRadius: '10px',
-                  border: `1px solid ${theme.border}`,
-                  background: theme.btnOutlineBg,
-                  color: theme.btnOutlineText,
-                  fontFamily: FONTS.body,
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {cancelText}
-              </button>
-            )}
-            <button
-              onClick={onConfirm}
-              style={{
-                flex: 1,
-                padding: '12px 16px',
-                borderRadius: '10px',
-                border: 'none',
-                background: accent,
-                color: '#fff',
-                fontFamily: FONTS.body,
-                fontSize: '14px',
-                fontWeight: '700',
-                cursor: 'pointer',
-                boxShadow: `0 4px 16px ${accent}44`,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.1)'}
-              onMouseLeave={e => e.currentTarget.style.filter = 'brightness(1)'}
-            >
-              {confirmText}
-            </button>
+            🌊 SiófokSzállás
+          </div>
+          <div style={{ fontSize: '12px', color: theme.textSecondary, letterSpacing: '0.3px' }}>
+            Balatoni apartmanok – Siófok
+          </div>
+        </div>
+
+        {/* Contact */}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '13px', fontWeight: '700', color: theme.textPrimary, marginBottom: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+            {t('footer_contact') || 'Kapcsolat'}
+          </div>
+          <div style={{ fontSize: '13px', color: theme.textSecondary, display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <a href="mailto:info@apartmanom.hu" style={{ color: COLORS.lagoon, textDecoration: 'none' }}>
+              info@apartmanom.hu
+            </a>
+            <span style={{ color: theme.textSecondary }}>+36 30 123 4567</span>
+          </div>
+          <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '8px', opacity: 0.7 }}>
+            {t('footer_last_update') || 'Utolsó frissítés:'} <strong>{lastUpdateDate}</strong>
           </div>
         </div>
       </div>
-    </div>
+    </footer>
   );
 }

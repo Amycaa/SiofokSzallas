@@ -14,11 +14,14 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
   const navigate = useNavigate();
   const [checkIn, setCheckIn] = useState(null);
   const [checkOut, setCheckOut] = useState(null);
-  const [disabledIntervals, setDisabledIntervals] = useState([]);
+  
+  // Tömb a konkrét letiltott napoknak
+  const [disabledDates, setDisabledDates] = useState([]);
   const [formData, setFormData] = useState({ guestName: '', email: '', totalGuests: minGuest || 1, guestsUnder18: 0 });
   const [modal, setModal] = useState({ isOpen: false, type: 'success', title: '', message: '' });
   const [calculation, setCalculation] = useState({ nights: 0, basePrice: 0, ifaPrice: 0, totalPrice: 0 });
   const [loading, setLoading] = useState(false);
+  
   const [isDarkMode, setIsDarkMode] = useState(
     window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
   );
@@ -30,11 +33,18 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // ✅ JAVÍTVA: Ha a minGuest prop később töltődik be, frissítjük a form kezdeti értékét is
   useEffect(() => {
-    if (minGuest) setFormData(prev => ({ ...prev, totalGuests: minGuest }));
+    if (minGuest) {
+      setFormData(prev => ({
+        ...prev,
+        totalGuests: Math.max(minGuest, prev.totalGuests)
+      }));
+    }
   }, [minGuest]);
 
   const theme = getTheme(isDarkMode);
+  const IFA_RATE = 750;
 
   const getLocale = () => {
     if (i18n.language.startsWith('en')) return enUS;
@@ -42,287 +52,212 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
     return hu;
   };
 
+  // ✅ JAVÍTVA: Precíz, hotel-típusú (current < stop) nap-generálás a naptárhoz új foglaláskor
   useEffect(() => {
     if (!apartmentName) return;
-    const fetch = async () => {
-      const q = query(collection(db, 'bookings'), where('apartmentName', '==', apartmentName), where('status', '==', 'confirmed'));
+    const fetchDisabledDates = async () => {
       try {
+        const q = query(collection(db, 'bookings'), where('apartmentName', '==', apartmentName));
         const snap = await getDocs(q);
-        setDisabledIntervals(snap.docs.map(d => ({ start: new Date(d.data().checkIn), end: new Date(d.data().checkOut) })));
-      } catch (e) { console.error(e); }
+        const allDates = [];
+        
+        snap.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.checkIn && data.checkOut && data.status !== 'cancelled') {
+            const [startYear, startMonth, startDay] = data.checkIn.split('-').map(Number);
+            const [endYear, endMonth, endDay] = data.checkOut.split('-').map(Number);
+            
+            let current = new Date(startYear, startMonth - 1, startDay);
+            const stop = new Date(endYear, endMonth - 1, endDay);
+            
+            // Csak a távozás előtti napig tiltunk le, így a távozás napján már bejelentkezhet más
+            while (current < stop) {
+              allDates.push(new Date(current));
+              current.setDate(current.getDate() + 1);
+            }
+          }
+        });
+        setDisabledDates(allDates);
+      } catch (err) {
+        console.error(err);
+      }
     };
-    fetch();
+    fetchDisabledDates();
   }, [apartmentName]);
 
+  // Éjszakák és árak kalkulációja élőben
   useEffect(() => {
     if (checkIn && checkOut) {
       const nights = Math.ceil((checkOut - checkIn) / 86400000);
       if (nights > 0) {
-        const adults = Math.max(0, formData.totalGuests - formData.guestsUnder18);
-        const basePrice = nights * formData.totalGuests * (pricePerNight || 0);
-        const ifaPrice = nights * adults * 750;
-        setCalculation({ nights, basePrice, ifaPrice, totalPrice: basePrice + ifaPrice });
-      } else setCalculation({ nights: 0, basePrice: 0, ifaPrice: 0, totalPrice: 0 });
-    } else setCalculation({ nights: 0, basePrice: 0, ifaPrice: 0, totalPrice: 0 });
+        const base = nights * formData.totalGuests * pricePerNight;
+        const ifa = nights * Math.max(0, formData.totalGuests - formData.guestsUnder18) * IFA_RATE;
+        setCalculation({ nights, basePrice: base, ifaPrice: ifa, totalPrice: base + ifa });
+      } else { setCalculation({ nights: 0, basePrice: 0, ifaPrice: 0, totalPrice: 0 }); }
+    } else { setCalculation({ nights: 0, basePrice: 0, ifaPrice: 0, totalPrice: 0 }); }
   }, [checkIn, checkOut, formData.totalGuests, formData.guestsUnder18, pricePerNight]);
 
-  const handleSubmit = async (e) => {
+  // ✅ JAVÍTVA: Dinamikus maximális távozási dátum meghatározása (hogy ne lehessen átugrani már foglalt időszakot)
+  const getCheckoutMaxDate = () => {
+    if (!checkIn || disabledDates.length === 0) return null;
+    const nextDisabled = disabledDates
+      .filter(d => d.getTime() > checkIn.getTime())
+      .sort((a, b) => a - b)[0];
+    return nextDisabled || null;
+  };
+
+  const handleSubmit = (e) => {
     e.preventDefault();
-    if (calculation.nights <= 0) return;
+    if (!checkIn || !checkOut || calculation.nights <= 0) return;
+
     setModal({
-      isOpen: true, type: 'confirm',
-      title: t('confirm_booking_title', 'Megerősítés'),
-      message: t('confirm_booking_msg', { defaultValue: `Biztosan foglalsz ${calculation.nights} éjszakát? Összeg: ${calculation.totalPrice.toLocaleString()} Ft`, nights: calculation.nights, total: calculation.totalPrice.toLocaleString() }),
-      onConfirm: () => submitBooking(),
+      isOpen: true, type: 'confirm', title: t('confirm_booking_title'),
+      message: t('confirm_booking_msg', { nights: calculation.nights, total: calculation.totalPrice.toLocaleString() }),
       onCancel: () => setModal(m => ({ ...m, isOpen: false })),
+      onConfirm: async () => {
+        setModal(m => ({ ...m, isOpen: false }));
+        setLoading(true);
+        try {
+          const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          await addDoc(collection(db, 'bookings'), {
+            minGuest, 
+            maxGuest, 
+            apartmentName, pricePerNight,
+            checkIn: fmt(checkIn), checkOut: fmt(checkOut),
+            nights: calculation.nights, ...formData,
+            totalAmount: calculation.totalPrice, status: 'confirmed',
+            createdAt: new Date().toISOString()
+          });
+          setModal({
+            isOpen: true, type: 'success', title: t('success', 'Siker'),
+            message: t('booking_success_msg', { email: formData.email }),
+            onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); navigate('/foglalasaim'); }
+          });
+        } catch (err) {
+          setModal({
+            isOpen: true, type: 'error', title: t('error', 'Hiba'),
+            message: t('booking_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false }))
+          });
+        } finally { setLoading(false); }
+      }
     });
   };
 
-  const submitBooking = async () => {
-    setModal(m => ({ ...m, isOpen: false }));
-    setLoading(true);
-    try {
-      const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      await addDoc(collection(db, 'bookings'), {
-        ...formData,
-        email: formData.email.trim().toLowerCase(),
-        apartmentName, pricePerNight, minGuest, maxGuest,
-        checkIn: fmt(checkIn), checkOut: fmt(checkOut),
-        nights: calculation.nights, totalAmount: calculation.totalPrice,
-        createdAt: new Date(), status: 'confirmed',
-      });
-      // ✅ sessionStorage törlése NEM kell – a Home.jsx-ből eltávolítottuk a redirect logikát
-      setModal({
-        isOpen: true, type: 'success',
-        title: t('booking_success_title', 'Sikeres foglalás!'),
-        message: t('booking_success_msg', { defaultValue: `A foglalásod rögzítve! Visszajelzést küldünk a(z) ${formData.email} e-mail-re.`, email: formData.email }),
-        onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); navigate('/'); },
-        onCancel: null,
-      });
-      setCheckIn(null); setCheckOut(null);
-    } catch (err) {
-      console.error(err);
-      setModal({
-        isOpen: true, type: 'error',
-        title: t('booking_error_title', 'Hiba történt'),
-        message: t('booking_error_msg', 'A foglalás rögzítése nem sikerült. Kérjük, próbáld újra!'),
-        onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
-        onCancel: null,
-      });
-    } finally { setLoading(false); }
-  };
-
   const inputStyle = {
-    padding: '11px 14px',
-    borderRadius: '9px',
-    border: `1px solid ${theme.borderInput}`,
-    fontSize: '15px',
-    fontFamily: FONTS.body,
-    outline: 'none',
-    width: '100%',
-    boxSizing: 'border-box',
-    background: theme.inputBg,
-    color: theme.textPrimary,
-    transition: 'border-color 0.2s',
+    padding: '12px 14px', borderRadius: '10px', border: `1px solid ${theme.borderInput}`,
+    fontSize: '15px', fontFamily: FONTS.body, outline: 'none', width: '100%', boxSizing: 'border-box',
+    background: theme.inputBg, color: theme.textPrimary, transition: 'all 0.2s ease',
   };
 
   const labelStyle = {
-    fontSize: '12px',
-    fontWeight: '700',
-    letterSpacing: '0.4px',
-    textTransform: 'uppercase',
-    color: theme.textSecondary,
-    marginBottom: '5px',
-    display: 'block',
-  };
-
-  const rowStyle = {
-    display: 'grid',
-    // Mobilon 1 oszlop, tableten/desktopon 2 oszlop
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
-    gap: '14px',
+    fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase',
+    color: theme.textSecondary, marginBottom: '6px', display: 'block',
   };
 
   return (
-    <div style={{ color: theme.textPrimary, fontFamily: FONTS.body, padding: '8px 0' }}>
+    <div style={{
+      background: theme.cardBg, border: `1px solid ${theme.border}`, borderRadius: '20px',
+      padding: '32px', boxShadow: '0 10px 30px rgba(13,45,74,0.05)', color: theme.textPrimary,
+      fontFamily: FONTS.body, maxWidth: '600px', margin: '0 auto'
+    }}>
       <ConfirmModal
         isOpen={modal.isOpen} type={modal.type} title={modal.title} message={modal.message}
         onConfirm={modal.onConfirm} onCancel={modal.onCancel}
-        confirmText={modal.type === 'confirm' ? t('yes_confirm', 'Igen, foglalom!') : 'OK'}
-        cancelText={t('cancel', 'Mégse')}
+        confirmText={modal.type === 'confirm' ? t('yes_confirm') : 'OK'} cancelText={t('cancel')}
         isDarkMode={isDarkMode}
       />
 
-      <h2 style={{ fontFamily: FONTS.display, fontSize: '26px', fontWeight: '700', color: theme.textPrimary, margin: '0 0 6px 0' }}>
+      <h3 style={{ fontFamily: FONTS.display, fontSize: '24px', fontWeight: '700', margin: '0 0 4px 0' }}>
         {t('booking_title')}
-      </h2>
-      <p style={{ fontSize: '13px', color: COLORS.amber, fontWeight: '700', margin: '0 0 20px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        ℹ️ {t('booking_limit', { min: minGuest || 1, max: maxGuest || 4 })}
+      </h3>
+      <p style={{ fontSize: '14px', color: COLORS.coral, fontWeight: '600', margin: '0 0 24px 0' }}>
+        {t('booking_limit', { min: minGuest, max: maxGuest })}
       </p>
 
-      {/* ✅ Egyetlen nagy kártya – minden mező egyben, nincs tagolás */}
-      <div style={{
-        padding: '24px',
-        borderRadius: '16px',
-        border: `1px solid ${theme.border}`,
-        background: theme.cardBg,
-        backdropFilter: 'blur(4px)',
-        marginBottom: '16px',
-      }}>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div>
+          <label style={labelStyle}>{t('name')}</label>
+          <input type="text" required style={inputStyle} value={formData.guestName} onChange={e => setFormData({ ...formData, guestName: e.target.value })} />
+        </div>
 
-          {/* Név + Email */}
-          <div style={rowStyle}>
-            <div>
-              <label style={labelStyle}>{t('name')}</label>
-              <input type="text" style={inputStyle}
-                onChange={e => setFormData({...formData, guestName: e.target.value})}
-                onFocus={e => e.target.style.borderColor = COLORS.lagoon}
-                onBlur={e => e.target.style.borderColor = theme.borderInput}
-                required />
+        <div>
+          <label style={labelStyle}>{t('email')}</label>
+          <input type="email" required style={inputStyle} value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+          <div>
+            <label style={labelStyle}>{t('arrival')}</label>
+            <DatePicker
+              selected={checkIn}
+              onChange={date => { setCheckIn(date); if (checkOut && date >= checkOut) setCheckOut(null); }}
+              minDate={new Date()} locale={getLocale()} dateFormat="yyyy-MM-dd"
+              excludeDates={disabledDates}
+              customInput={<input style={inputStyle} />}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('departure')}</label>
+            <DatePicker
+              selected={checkOut} 
+              onChange={date => setCheckOut(date)}
+              minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()} 
+              maxDate={getCheckoutMaxDate()}
+              locale={getLocale()} 
+              dateFormat="yyyy-MM-dd"
+              customInput={<input style={inputStyle} />}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+          <div>
+            <label style={labelStyle}>{t('total_guests')}</label>
+            <input type="number" min={minGuest || 1} max={maxGuest || 10} style={inputStyle} value={formData.totalGuests}
+              onChange={e => {
+                const v = Math.max(minGuest || 1, Math.min(maxGuest || 10, parseInt(e.target.value) || 1));
+                setFormData({ ...formData, totalGuests: v, guestsUnder18: Math.min(formData.guestsUnder18, v) });
+              }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('under_18')}</label>
+            <input type="number" min="0" max={formData.totalGuests} style={inputStyle} value={formData.guestsUnder18}
+              onChange={e => setFormData({ ...formData, guestsUnder18: Math.min(formData.totalGuests, parseInt(e.target.value) || 0) })}
+            />
+          </div>
+        </div>
+
+        {calculation.nights > 0 && (
+          <div style={{ padding: '20px', borderRadius: '12px', border: `1px solid ${theme.border}`, background: theme.summaryBg }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: `1px solid ${theme.hr}` }}>
+              <span style={{ fontSize: '14px', color: theme.textSecondary }}>{t('summary_rent', { nights: calculation.nights, guests: formData.totalGuests, price: pricePerNight.toLocaleString() })}</span>
+              <span style={{ fontSize: '14px', fontWeight: '600' }}>{calculation.basePrice.toLocaleString()} {t('currency')}</span>
             </div>
-            <div>
-              <label style={labelStyle}>{t('email')}</label>
-              <input type="email" style={inputStyle}
-                onChange={e => setFormData({...formData, email: e.target.value})}
-                onFocus={e => e.target.style.borderColor = COLORS.lagoon}
-                onBlur={e => e.target.style.borderColor = theme.borderInput}
-                required />
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${theme.hr}` }}>
+              <span style={{ fontSize: '14px', color: theme.textSecondary }}>{t('summary_ifa')}</span>
+              <span style={{ fontSize: '14px', fontWeight: '600' }}>{calculation.ifaPrice.toLocaleString()} {t('currency')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '12px' }}>
+              <span style={{ fontFamily: FONTS.display, fontSize: '16px', fontWeight: '700' }}>{t('summary_total')}</span>
+              <span style={{ fontFamily: FONTS.display, fontSize: '20px', fontWeight: '700', color: COLORS.coral }}>{calculation.totalPrice.toLocaleString()} {t('currency')}</span>
             </div>
           </div>
+        )}
 
-          {/* Elválasztó */}
-          <hr style={{ border: 'none', borderTop: `1px solid ${theme.hr}`, margin: '0' }} />
-
-          {/* Dátumok */}
-          <div style={rowStyle}>
-            <div>
-              <label style={labelStyle}>{t('arrival')}</label>
-              <DatePicker
-                selected={checkIn}
-                onChange={date => { setCheckIn(date); if (checkOut && date >= checkOut) setCheckOut(null); }}
-                selectsStart startDate={checkIn} endDate={checkOut}
-                minDate={new Date()} excludeDateIntervals={disabledIntervals}
-                locale={getLocale()} dateFormat="yyyy-MM-dd"
-                placeholderText={t('date_placeholder')}
-                customInput={<input style={inputStyle} />}
-                required
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('departure')}</label>
-              <DatePicker
-                selected={checkOut} onChange={date => setCheckOut(date)}
-                selectsEnd startDate={checkIn} endDate={checkOut}
-                minDate={checkIn || new Date()} excludeDateIntervals={disabledIntervals}
-                locale={getLocale()} dateFormat="yyyy-MM-dd"
-                placeholderText={t('date_placeholder')}
-                customInput={<input style={inputStyle} />}
-                required
-              />
-            </div>
-          </div>
-
-          {/* Elválasztó */}
-          <hr style={{ border: 'none', borderTop: `1px solid ${theme.hr}`, margin: '0' }} />
-
-          {/* Vendégszám */}
-          <div style={rowStyle}>
-            <div>
-              <label style={labelStyle}>{t('total_guests')}</label>
-              <input
-                type="number" min={minGuest || 1} max={maxGuest || 10}
-                style={inputStyle} value={formData.totalGuests}
-                onChange={e => {
-                  const v = parseInt(e.target.value) || 1;
-                  const safe = Math.min(Math.max(v, minGuest || 1), maxGuest || 10);
-                  setFormData({ ...formData, totalGuests: safe, guestsUnder18: formData.guestsUnder18 > safe ? safe : formData.guestsUnder18 });
-                }}
-                onFocus={e => e.target.style.borderColor = COLORS.lagoon}
-                onBlur={e => e.target.style.borderColor = theme.borderInput}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>{t('under_18')}</label>
-              <input
-                type="number" min="0" max={formData.totalGuests}
-                style={inputStyle} value={formData.guestsUnder18}
-                onChange={e => setFormData({...formData, guestsUnder18: Math.min(parseInt(e.target.value) || 0, formData.totalGuests)})}
-                onFocus={e => e.target.style.borderColor = COLORS.lagoon}
-                onBlur={e => e.target.style.borderColor = theme.borderInput}
-              />
-            </div>
-          </div>
-
-          {/* Összesítő – csak ha ki vannak töltve a dátumok */}
-          {calculation.nights > 0 && (
-            <>
-              <hr style={{ border: 'none', borderTop: `1px solid ${theme.hr}`, margin: '0' }} />
-              <div style={{
-                padding: '16px',
-                borderRadius: '10px',
-                background: theme.summaryBg,
-                border: `1px solid ${theme.border}`,
-              }}>
-                <div style={{ fontFamily: FONTS.display, fontSize: '14px', fontWeight: '700', color: theme.textPrimary, marginBottom: '10px' }}>
-                  📋 {t('summary_total') ? 'Összesítő' : 'Summary'}
-                </div>
-                {[
-                  {
-                    label: t('summary_rent', { nights: calculation.nights, guests: formData.totalGuests, price: (pricePerNight || 0).toLocaleString() }),
-                    value: `${calculation.basePrice.toLocaleString()} ${t('currency')}`,
-                  },
-                  {
-                    label: t('summary_ifa'),
-                    value: `${calculation.ifaPrice.toLocaleString()} ${t('currency')}`,
-                  },
-                ].map((row, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${theme.hr}` }}>
-                    <span style={{ fontSize: '13px', color: theme.textSecondary }}>{row.label}</span>
-                    <span style={{ fontSize: '13px', color: theme.textPrimary, fontWeight: '600' }}>{row.value}</span>
-                  </div>
-                ))}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px' }}>
-                  <span style={{ fontFamily: FONTS.display, fontSize: '15px', fontWeight: '700', color: theme.textPrimary }}>
-                    {t('summary_total')}
-                  </span>
-                  <span style={{ fontFamily: FONTS.display, fontSize: '20px', fontWeight: '700', color: COLORS.coral }}>
-                    {calculation.totalPrice.toLocaleString()} {t('currency')}
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Submit gomb */}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              padding: '15px',
-              borderRadius: '10px',
-              border: 'none',
-              background: loading
-                ? theme.btnOutlineBg
-                : `linear-gradient(135deg, ${COLORS.emerald}, ${COLORS.lagoon})`,
-              color: loading ? theme.textSecondary : '#fff',
-              fontFamily: FONTS.body,
-              fontSize: '15px',
-              fontWeight: '700',
-              letterSpacing: '0.3px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: loading ? 'none' : '0 4px 18px rgba(39,174,122,0.35)',
-              transition: 'all 0.2s ease',
-              marginTop: '4px',
-            }}
-            onMouseEnter={e => { if (!loading) e.currentTarget.style.filter = 'brightness(1.08)'; }}
-            onMouseLeave={e => e.currentTarget.style.filter = 'brightness(1)'}
-          >
-            {loading ? t('processing') : `🗓 ${t('submit_booking')}`}
-          </button>
-
-        </form>
-      </div>
+        <button
+          type="submit" disabled={loading}
+          style={{
+            padding: '15px', borderRadius: '10px', border: 'none',
+            background: loading ? theme.btnOutlineBg : `linear-gradient(135deg, ${COLORS.emerald}, ${COLORS.lagoon})`,
+            color: loading ? theme.textSecondary : '#fff', fontFamily: FONTS.body, fontSize: '15px', fontWeight: '700',
+            cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : '0 4px 18px rgba(39,174,122,0.35)',
+            transition: 'all 0.2s ease', marginTop: '4px',
+          }}
+        >
+          {loading ? t('booking_btn') + '...' : t('booking_btn')}
+        </button>
+      </form>
     </div>
   );
 }
