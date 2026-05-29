@@ -4,7 +4,10 @@ import MyMenu from './Components/MyMenu';
 import Home from './Components/Home';
 import MyBookings from './Components/MyBookings';
 import ApartmentDetail from './Components/ApartmentDetail';
-import BookingPage from './Components/BookingPage'; // BookingForm helyett BookingPage!
+import BookingPage from './Components/BookingPage'; 
+import FAQ from './Components/FAQ';
+import ApartmentTranslationAdmin from './Components/ApartmentTranslationAdmin';
+
 
 function App() {
   return (
@@ -16,7 +19,9 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/apartment/:id" element={<ApartmentDetail />} />
           <Route path="/foglalasaim" element={<MyBookings />} />
-          <Route path="/foglalas" element={<BookingPage />} /> {/* BookingPage kezeli a state-et */}
+          <Route path="/foglalas" element={<BookingPage />} /> 
+          <Route path="/gyik" element={<FAQ />} />
+          <Route path="/admin/forditas" element={<ApartmentTranslationAdmin />} />
         </Routes>
       </div>
     </Router>

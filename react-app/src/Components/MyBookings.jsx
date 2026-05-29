@@ -21,6 +21,10 @@ export default function MyBookings() {
   const [editCheckOut, setEditCheckOut] = useState(null);
   const [editTotalGuests, setEditTotalGuests] = useState(1);
   const [editGuestsUnder18, setEditGuestsUnder18] = useState(0);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editHasPet, setEditHasPet] = useState(false);
   const [liveNights, setLiveNights] = useState(0);
   const [liveAmount, setLiveAmount] = useState(0);
   const [liveIFA, setLiveIFA] = useState(0);
@@ -126,6 +130,10 @@ export default function MyBookings() {
     setEditGuestsUnder18(b.guestsUnder18 || 0);
     setEditingMinGuest(b.minGuest || 1);
     setEditingMaxGuest(b.maxGuest || 10);
+    setEditName(b.guestName || '');
+    setEditPhone(b.phone || '');
+    setEditNotes(b.notes || '');
+    setEditHasPet(b.hasPet || false);
     
     if (b.pricePerNight) {
       setPricePerPersonPerNight(b.pricePerNight);
@@ -164,11 +172,34 @@ export default function MyBookings() {
     }
   };
 
+  // Magyar telefonszám validáció: +36 XX XXX XXXX vagy 06XX-XXX-XXXX stb.
+  const isValidHungarianPhone = (phone) => {
+    if (!phone) return true; // opcionális mező
+    const cleaned = phone.replace(/[\s\-().]/g, '');
+    // +36 + 9 szám, vagy 06 + 9 szám, vagy 9 szám (06 nélkül)
+    return /^(\+36|0036|06)\d{9}$/.test(cleaned) || /^[37]\d{8}$/.test(cleaned);
+  };
+
+  const handlePhoneChange = (val) => {
+    // Szóközt tiltjuk, csak számok + megengedett karakterek
+    const filtered = val.replace(/[^\d+\-()]/g, '');
+    setEditPhone(filtered);
+  };
+
+  const handlePhoneKeyDown = (e) => {
+    // Szóköz billentyű explicit tiltása
+    if (e.key === ' ') e.preventDefault();
+  };
+
   const handleUpdate = async (b) => {
     if (!editCheckIn || !editCheckOut || liveNights <= 0) { 
       // ✅ JAVÍTVA: Általános hiba fordítás dátumhibánál
       setModal({ isOpen: true, type: 'error', title: t('error', 'Hiba'), message: t('date_error'), onConfirm: closeModal });
       return; 
+    }
+    if (editPhone && !isValidHungarianPhone(editPhone)) {
+      setModal({ isOpen: true, type: 'error', title: t('phone_error_title'), message: t('phone_error_msg'), onConfirm: closeModal });
+      return;
     }
     try {
       const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -176,6 +207,7 @@ export default function MyBookings() {
         checkIn: fmt(editCheckIn), checkOut: fmt(editCheckOut),
         nights: liveNights, totalGuests: parseInt(editTotalGuests),
         guestsUnder18: parseInt(editGuestsUnder18), totalAmount: liveAmount,
+        guestName: editName, phone: editPhone, notes: editNotes, hasPet: editHasPet,
       });
       setEditingBookingId(null);
       handleFetch();
@@ -271,13 +303,14 @@ export default function MyBookings() {
             <div key={booking.id} style={{
               borderRadius: '16px', border: `1px solid ${theme.border}`, background: theme.cardBg,
               overflow: 'hidden', boxShadow: '0 4px 20px rgba(13,45,74,0.07)',
+              minWidth: 0,
             }}>
               <div style={{
                 padding: '18px 24px', background: isDarkMode ? 'rgba(26,74,107,0.25)' : 'rgba(26,74,107,0.06)',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px',
                 borderBottom: `1px solid ${theme.border}`,
               }}>
-                <h4 style={{ margin: 0, fontFamily: FONTS.display, fontSize: '18px', color: theme.textPrimary }}>
+                <h4 style={{ margin: 0, fontFamily: FONTS.display, fontSize: '18px', color: theme.textPrimary, minWidth: 0, wordBreak: 'break-word', flex: 1 }}>
                   🏖 {aptName}
                 </h4>
                 <span style={{
@@ -288,7 +321,7 @@ export default function MyBookings() {
                 </span>
               </div>
 
-              <div style={{ padding: '20px 24px' }}>
+              <div style={{ padding: '20px 16px' }}>
                 {isEditing ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
@@ -364,6 +397,96 @@ export default function MyBookings() {
                       </div>
                     )}
 
+                    {/* Név és telefonszám szerkesztése */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                      <div>
+                        <label style={labelStyle}>👤 {t('name_label')}</label>
+                        <input
+                          type="text" value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          style={inputStyle}
+                          placeholder={t('name_placeholder')}
+                        />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>📞 {t('phone_label')}</label>
+                        <input
+                          type="tel" value={editPhone}
+                          onChange={e => handlePhoneChange(e.target.value)}
+                          onKeyDown={handlePhoneKeyDown}
+                          style={inputStyle}
+                          placeholder="+36301234567"
+                          maxLength={15}
+                        />
+                        <div style={{ fontSize: '11px', color: theme.textSecondary, marginTop: '4px', opacity: 0.65 }}>
+                          {t('phone_hint')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Kisállat checkbox */}
+                    <div style={{
+                      padding: '14px 16px', borderRadius: '12px',
+                      border: `1px solid ${editHasPet ? COLORS.amber : theme.border}`,
+                      background: editHasPet
+                        ? (isDarkMode ? 'rgba(232,160,32,0.10)' : 'rgba(232,160,32,0.06)')
+                        : theme.summaryBg,
+                      transition: 'all 0.2s ease',
+                      cursor: 'pointer',
+                    }}
+                      onClick={() => setEditHasPet(v => !v)}
+                    >
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '5px', flexShrink: 0,
+                          border: `2px solid ${editHasPet ? COLORS.amber : theme.borderInput}`,
+                          background: editHasPet ? COLORS.amber : 'transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.18s ease',
+                        }}>
+                          {editHasPet && (
+                            <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+                              <path d="M1 4L4 7.5L10 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '13px', color: theme.textSecondary, userSelect: 'none', lineHeight: '1.5' }}>
+                          🐾 {t('pet_label')}
+                          {editHasPet && (
+                            <span style={{ display: 'block', fontSize: '12px', color: COLORS.amber, marginTop: '2px', fontWeight: '600' }}>
+                              {t('pet_note')}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Megjegyzés */}
+                    <div>
+                      <label style={labelStyle}>
+                        💬 {t('notes_label')}
+                        <span style={{ fontWeight: '400', textTransform: 'none', letterSpacing: 0, marginLeft: '4px' }}>
+                          ({t('optional')})
+                        </span>
+                      </label>
+                      <textarea
+                        value={editNotes}
+                        onChange={e => setEditNotes(e.target.value)}
+                        maxLength={500}
+                        placeholder={t('notes_placeholder')}
+                        style={{
+                          ...inputStyle,
+                          resize: 'vertical',
+                          minHeight: '80px',
+                          lineHeight: '1.6',
+                          paddingTop: '12px',
+                        }}
+                      />
+                      <div style={{ fontSize: '11px', color: theme.textSecondary, textAlign: 'right', marginTop: '3px', opacity: 0.6 }}>
+                        {editNotes.length} / 500
+                      </div>
+                    </div>
+
                     <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                       <button
                         onClick={() => handleUpdate(booking)}
@@ -390,28 +513,77 @@ export default function MyBookings() {
                   </div>
                 ) : (
                   <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px 12px', marginBottom: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))', gap: '16px 8px', marginBottom: '20px' }}>
                       {[
                         { icon: '📅', label: t('date_label'), value: `${booking.checkIn} – ${booking.checkOut} (${t('nights_count', { count: booking.nights })})` },
                         { icon: '👥', label: t('guests_label'), value: `${t('guest_count', { count: booking.totalGuests })}${booking.guestsUnder18 > 0 ? (' · ' + t('adult_under18', { count: booking.guestsUnder18 })) : ''}` },
                         { icon: '💰', label: t('total_pay_ifa'), value: `${booking.totalAmount?.toLocaleString()} ${t('currency')}`, highlight: true },
                       ].map((row, i) => (
-                        <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '6px' }}>
-                          <span style={{ fontSize: '12px', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.4px', fontWeight: '700' }}>
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '6px', minWidth: 0 }}>
+                          <span style={{ fontSize: '12px', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.4px', fontWeight: '700', textAlign: 'center' }}>
                             {row.icon} {row.label}
                           </span>
-                          <span style={{ fontSize: '15px', color: row.highlight ? COLORS.coral : theme.textPrimary, fontWeight: row.highlight ? '700' : '500', fontFamily: row.highlight ? FONTS.display : FONTS.body }}>
+                          <span style={{
+                            fontSize: '15px', color: row.highlight ? COLORS.coral : theme.textPrimary,
+                            fontWeight: row.highlight ? '700' : '500',
+                            fontFamily: row.highlight ? FONTS.display : FONTS.body,
+                            wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center',
+                          }}>
                             {row.value}
                           </span>
                         </div>
                       ))}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'nowrap', marginTop: '12px' }}>
+                    {/* Háziállat és megjegyzés megjelenítése */}
+                    {(booking.hasPet || booking.notes) && (
+                      <div style={{
+                        display: 'flex', flexDirection: 'column', gap: '8px',
+                        padding: '14px 16px', borderRadius: '10px',
+                        border: `1px solid ${theme.border}`,
+                        background: isDarkMode ? 'rgba(26,74,107,0.15)' : 'rgba(26,74,107,0.04)',
+                        marginBottom: '16px',
+                        minWidth: 0,
+                      }}>
+                        {booking.hasPet && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px',
+                              color: COLORS.amber, whiteSpace: 'nowrap', flexShrink: 0,
+                            }}>🐾 {t('pet_label')}</span>
+                            <span style={{
+                              fontSize: '13px', color: theme.textPrimary, fontWeight: '600',
+                              background: isDarkMode ? 'rgba(232,160,32,0.15)' : 'rgba(232,160,32,0.10)',
+                              border: `1px solid ${COLORS.amber}44`,
+                              borderRadius: '6px', padding: '2px 10px',
+                            }}>
+                              {t('pet_yes')}
+                            </span>
+                          </div>
+                        )}
+                        {booking.notes && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                            <span style={{
+                              fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px',
+                              color: theme.textSecondary, whiteSpace: 'nowrap',
+                            }}>💬 {t('notes_label')}</span>
+                            <span style={{
+                              fontSize: '13px', color: theme.textSecondary, fontStyle: 'italic', lineHeight: '1.6',
+                              wordBreak: 'break-word', overflowWrap: 'anywhere',
+                              textAlign: 'left', display: 'block', minWidth: 0,
+                            }}>
+                              {booking.notes}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
                       <button
                         onClick={() => startEdit(booking)}
                         style={{
-                          flex: 1, padding: '11px 8px', borderRadius: '9px', border: 'none',
+                          flex: '1 1 120px', padding: '11px 8px', borderRadius: '9px', border: 'none',
                           background: COLORS.amber, color: '#fff', fontFamily: FONTS.body, fontSize: '13px', fontWeight: '700', cursor: 'pointer',
                           boxShadow: '0 3px 10px rgba(232,160,32,0.30)',
                         }}
@@ -421,7 +593,7 @@ export default function MyBookings() {
                       <button
                         onClick={() => handleCancel(booking.id)}
                         style={{
-                          flex: 1, padding: '11px 8px', borderRadius: '9px', border: 'none',
+                          flex: '1 1 120px', padding: '11px 8px', borderRadius: '9px', border: 'none',
                           background: COLORS.coral, color: '#fff', fontFamily: FONTS.body, fontSize: '13px', fontWeight: '700', cursor: 'pointer',
                           boxShadow: '0 3px 10px rgba(224,92,75,0.30)',
                         }}
