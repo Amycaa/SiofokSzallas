@@ -11,27 +11,42 @@ import PrivacyPolicyModal from './PrivacyPolicyModal';
 import { getTheme, FONTS, COLORS } from './theme';
 
 // ── Kliens oldali rate limiter ────────────────────────────────────────────────
+// Több kulcsot használ – ha egyet töröl a user, a többi megmarad
 const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_MS  = 10 * 60 * 1000;
-const RATE_KEY       = 'booking_attempts';
+const RATE_KEYS = ['booking_attempts', '_bk_ts', '__persist_bk'];
 
 function isRateLimited() {
   try {
-    const raw = localStorage.getItem(RATE_KEY);
-    const attempts = raw ? JSON.parse(raw) : [];
     const now = Date.now();
-    const recent = attempts.filter(ts => now - ts < RATE_LIMIT_MS);
-    localStorage.setItem(RATE_KEY, JSON.stringify(recent));
+    const allAttempts = RATE_KEYS.flatMap(key => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    });
+    const recent = allAttempts.filter(ts => now - ts < RATE_LIMIT_MS);
     return recent.length >= RATE_LIMIT_MAX;
   } catch { return false; }
 }
 
 function recordAttempt() {
   try {
-    const raw = localStorage.getItem(RATE_KEY);
-    const attempts = raw ? JSON.parse(raw) : [];
-    attempts.push(Date.now());
-    localStorage.setItem(RATE_KEY, JSON.stringify(attempts));
+    const now = Date.now();
+    RATE_KEYS.forEach(key => {
+      try {
+        const raw = localStorage.getItem(key);
+        const attempts = raw ? JSON.parse(raw) : [];
+        attempts.push(now);
+        localStorage.setItem(key, JSON.stringify(attempts.slice(-10)));
+      } catch {}
+    });
+    try {
+      const raw = sessionStorage.getItem('_bk_session');
+      const attempts = raw ? JSON.parse(raw) : [];
+      attempts.push(now);
+      sessionStorage.setItem('_bk_session', JSON.stringify(attempts));
+    } catch {}
   } catch {}
 }
 
@@ -150,86 +165,26 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
   };
 
   const handleSubmit = (e) => {
-  e.preventDefault();
-  if (!checkIn || !checkOut || calculation.nights <= 0) return;
+    e.preventDefault();
+    if (!checkIn || !checkOut || calculation.nights <= 0) return;
 
-  // 1. Honeypot: ha ki van töltve, bot töltötte ki
-  if (honeypotRef.current && honeypotRef.current.value) return;
+    // ── Bot / spam védelem ────────────────────────────────────────────────────
+    // 1. Honeypot: ha ki van töltve, bot töltötte ki
+    if (honeypotRef.current && honeypotRef.current.value) return;
 
-  // 2. Minimum kitöltési idő
-  if (Date.now() - formLoadTime.current < 3000) return;
+    // 2. Minimum kitöltési idő: botoknál szempillantás alatt van kész
+    if (Date.now() - formLoadTime.current < 800) return;
 
-  // 3. Kliens oldali rate limit
-  if (isRateLimited()) {
-    setModal({
-      isOpen: true, type: 'error',
-      title: t('rate_limit_title', 'Túl sok kísérlet'),
-      message: t('rate_limit_msg', 'Rövid időn belül túl sok foglalási kísérletet észleltünk. Kérjük próbálja újra 10 perc múlva.'),
-      onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
-    });
-    return;
-  }
-
-  if (!isValidHungarianPhone(formData.phone)) {
-    setModal({ isOpen: true, type: 'error', title: t('phone_error_title'), message: t('phone_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false })) });
-    return;
-  }
-
-  if (!gdprAccepted) {
-    setGdprTouched(true);
-    return;
-  }
-
-  setModal({
-    isOpen: true, type: 'confirm', title: t('confirm_booking_title'),
-    message: t('confirm_booking_msg', { nights: calculation.nights, total: calculation.totalPrice.toLocaleString() }),
-    onCancel: () => setModal(m => ({ ...m, isOpen: false })),
-    onConfirm: async () => {
-      setModal(m => ({ ...m, isOpen: false }));
-      setLoading(true);
-      try {
-        const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const safeGuests = Math.max(minGuest || 1, Math.min(maxGuest || 20, Number(formData.totalGuests) || 1));
-        const sanitizedData = {
-          guestName:     sanitize(formData.guestName, 100),
-          email:         sanitize(formData.email, 100).toLowerCase(),
-          phone:         sanitize(formData.phone, 20),
-          totalGuests:   safeGuests,
-          guestsUnder18: Math.max(0, Math.min(safeGuests, Number(formData.guestsUnder18) || 0)),
-          hasPet:        Boolean(formData.hasPet),
-          ...(formData.notes && formData.notes.trim()
-            ? { notes: sanitize(formData.notes, 500) }
-            : {}),
-        };
-        recordAttempt();
-        await addDoc(collection(db, 'bookings'), {
-          apartmentName,
-          pricePerNight: Number(pricePerNight) || 0,
-          checkIn:  fmt(checkIn),
-          checkOut: fmt(checkOut),
-          nights:   calculation.nights,
-          ...sanitizedData,
-          totalAmount: calculation.totalPrice,
-          status:      'confirmed',
-          gdprConsent: true,
-          gdprConsentAt: new Date().toISOString(),
-          createdAt:     new Date().toISOString(),
-        });
-        setModal({
-          isOpen: true, type: 'success', title: t('success', 'Siker'),
-          message: t('booking_success_msg', { email: formData.email }),
-          onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); navigate('/foglalasaim'); }
-        });
-      } catch (err) {
-        setModal({
-          isOpen: true, type: 'error', title: t('error', 'Hiba'),
-          message: t('booking_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false }))\
-        });
-      } finally { setLoading(false); }
+    // 3. Kliens oldali rate limit
+    if (isRateLimited()) {
+      setModal({
+        isOpen: true, type: 'error',
+        title: t('rate_limit_title', 'Túl sok kísérlet'),
+        message: t('rate_limit_msg', 'Rövid időn belül túl sok foglalási kísérletet észleltünk. Kérjük próbálja újra 10 perc múlva.'),
+        onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
+      });
+      return;
     }
-  });
-};
-  
     // ─────────────────────────────────────────────────────────────────────────
 
     // Telefonszám validáció
@@ -459,7 +414,7 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
                 </svg>
               )}
             </div>
-            <span style={{ fontSize: '13px', lineHeight: '1.6', color: theme.textSecondary, userSelect: 'none' }}>
+            <span style={{ textAlign: 'left', fontSize: '13px', lineHeight: '1.6', color: theme.textSecondary, userSelect: 'none' }}>
               🐾 {t('pet_label', 'Kisállatot hozok magammal')}
               {formData.hasPet && (
                 <span style={{ display: 'block', fontSize: '12px', color: COLORS.amber, marginTop: '2px', fontWeight: '600' }}>
@@ -571,7 +526,7 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
         </div>
 
         {/* Honeypot mező – botoknál automatikusan kitöltődik, embereknek láthatatlan */}
-        <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', opacity: 0, pointerEvents: 'none', tabIndex: -1, 'aria-hidden': 'true' }}>
+        <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', top: '-9999px', opacity: 0, pointerEvents: 'none' }}>
           <input
             ref={honeypotRef}
             type="text"

@@ -1,6 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";  // ← ez hiányzik
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyDrVrA62idWwGQZl_81q1HCBb1nDUMg7mA",
@@ -13,5 +15,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
+initializeAppCheck(app, {
+  provider: new ReCaptchaV3Provider('A_TE_RECAPTCHA_SITE_KEY'),
+  isTokenAutoRefreshEnabled: true,
+});
+
 export const db = getFirestore(app);
-export const auth = getAuth(app);  // ← ezt add hozzá
+export const auth = getAuth(app);

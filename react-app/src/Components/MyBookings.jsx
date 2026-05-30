@@ -102,10 +102,7 @@ export default function MyBookings() {
       onConfirm: async () => {
         closeModal();
         try {
-          await updateDoc(doc(db, 'bookings', id), {
-            status: 'cancelled',
-            cancelledAt: new Date().toISOString(),
-          });
+          await deleteDoc(doc(db, 'bookings', id));
           setBookings(prev => prev.filter(b => b.id !== id));
           setTimeout(() => {
             // ✅ JAVÍTVA: Általános siker fordítás lemondáskor
@@ -453,7 +450,7 @@ export default function MyBookings() {
                             </svg>
                           )}
                         </div>
-                        <span style={{ fontSize: '13px', color: theme.textSecondary, userSelect: 'none', lineHeight: '1.5' }}>
+                        <span style={{ textAlign: 'left', fontSize: '13px', color: theme.textSecondary, userSelect: 'none', lineHeight: '1.5' }}>
                           🐾 {t('pet_label')}
                           {editHasPet && (
                             <span style={{ display: 'block', fontSize: '12px', color: COLORS.amber, marginTop: '2px', fontWeight: '600' }}>
@@ -549,7 +546,7 @@ export default function MyBookings() {
                         minWidth: 0,
                       }}>
                         {booking.hasPet && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <div style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <span style={{
                               fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px',
                               color: COLORS.amber, whiteSpace: 'nowrap', flexShrink: 0,
