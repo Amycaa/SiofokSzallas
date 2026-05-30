@@ -1,4 +1,4 @@
-const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { defineString } = require("firebase-functions/params");
 const { google } = require("googleapis");
 
@@ -91,6 +91,39 @@ exports.syncBookingToCalendar = onDocumentCreated(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 3. TÖRÖLT FOGLALÁS → esemény törlése a naptárból
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteBookingFromCalendar = onDocumentDeleted(
+  { document: "bookings/{bookingId}", region: "europe-west1" },
+  async (event) => {
+    const booking = event.data.data();
+    const calendarEventId = booking?.calendarEventId;
+
+    if (!calendarEventId) {
+      console.log(`Törölt foglaláshoz (${event.data.id}) nincs naptár esemény, kihagyva.`);
+      return null;
+    }
+
+    try {
+      const calendar = getCalendarClient();
+      await calendar.events.delete({
+        calendarId: CALENDAR_ID.value(),
+        eventId:    calendarEventId,
+      });
+      console.log(`🗑️ Naptár esemény törölve (foglalás törölve): ${calendarEventId}`);
+    } catch (error) {
+      if (error.code === 410 || error.status === 410) {
+        console.warn("⚠️ Esemény már nem létezett a naptárban (410), semmi teendő.");
+      } else {
+        console.error("❌ Hiba a naptár esemény törlésénél:", error.message);
+      }
+    }
+
+    return null;
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. MÓDOSÍTOTT / LEMONDOTT FOGLALÁS → esemény frissítése vagy törlése
 // ─────────────────────────────────────────────────────────────────────────────
 exports.updateBookingInCalendar = onDocumentUpdated(
@@ -100,7 +133,7 @@ exports.updateBookingInCalendar = onDocumentUpdated(
     const after  = event.data.after.data();
 
     // Ha semmi releváns nem változott – ne csináljunk semmit
-    const relevantFields = ["checkIn","checkOut","guestName","email","phone","totalGuests","guestsUnder18","nights","totalAmount","hasPet","notes","status"];
+    const relevantFields = ["checkIn","checkOut","guestName","email","phone","totalGuests","guestsUnder18","nights","totalAmount","hasPet","notes","status","pricePerNight","apartmentName"];
     const hasChange = relevantFields.some(f => JSON.stringify(before[f]) !== JSON.stringify(after[f]));
     if (!hasChange) return null;
 

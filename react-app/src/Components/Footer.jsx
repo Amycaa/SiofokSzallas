@@ -88,12 +88,13 @@ export default function Footer() {
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: '20px',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '28px',
+          textAlign: 'center',
         }}>
           {/* Brand */}
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{
               fontFamily: FONTS.display,
               fontSize: '18px',
@@ -111,7 +112,7 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Links középen */}
+          {/* Links */}
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -148,11 +149,11 @@ export default function Footer() {
           </div>
 
           {/* Contact */}
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '13px', fontWeight: '700', color: theme.textPrimary, marginBottom: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
               {t('footer_contact') || 'Kapcsolat'}
             </div>
-            <div style={{ fontSize: '13px', color: theme.textSecondary, display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ fontSize: '13px', color: theme.textSecondary, display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
               <a href="mailto:info@apartmanom.hu" style={{ color: COLORS.lagoon, textDecoration: 'none' }}>
                 info@apartmanom.hu
               </a>
