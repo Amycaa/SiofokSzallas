@@ -150,26 +150,86 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
   };
 
   const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!checkIn || !checkOut || calculation.nights <= 0) return;
+  e.preventDefault();
+  if (!checkIn || !checkOut || calculation.nights <= 0) return;
 
-    // ── Bot / spam védelem ────────────────────────────────────────────────────
-    // 1. Honeypot: ha ki van töltve, bot töltötte ki
-    if (honeypotRef.current && honeypotRef.current.value) return;
+  // 1. Honeypot: ha ki van töltve, bot töltötte ki
+  if (honeypotRef.current && honeypotRef.current.value) return;
 
-    // 2. Minimum kitöltési idő: botoknál szempillantás alatt van kész
-    if (Date.now() - formLoadTime.current < 3000) return;
+  // 2. Minimum kitöltési idő
+  if (Date.now() - formLoadTime.current < 3000) return;
 
-    // 3. Kliens oldali rate limit
-    if (isRateLimited()) {
-      setModal({
-        isOpen: true, type: 'error',
-        title: t('rate_limit_title', 'Túl sok kísérlet'),
-        message: t('rate_limit_msg', 'Rövid időn belül túl sok foglalási kísérletet észleltünk. Kérjük próbálja újra 10 perc múlva.'),
-        onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
-      });
-      return;
+  // 3. Kliens oldali rate limit
+  if (isRateLimited()) {
+    setModal({
+      isOpen: true, type: 'error',
+      title: t('rate_limit_title', 'Túl sok kísérlet'),
+      message: t('rate_limit_msg', 'Rövid időn belül túl sok foglalási kísérletet észleltünk. Kérjük próbálja újra 10 perc múlva.'),
+      onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
+    });
+    return;
+  }
+
+  if (!isValidHungarianPhone(formData.phone)) {
+    setModal({ isOpen: true, type: 'error', title: t('phone_error_title'), message: t('phone_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false })) });
+    return;
+  }
+
+  if (!gdprAccepted) {
+    setGdprTouched(true);
+    return;
+  }
+
+  setModal({
+    isOpen: true, type: 'confirm', title: t('confirm_booking_title'),
+    message: t('confirm_booking_msg', { nights: calculation.nights, total: calculation.totalPrice.toLocaleString() }),
+    onCancel: () => setModal(m => ({ ...m, isOpen: false })),
+    onConfirm: async () => {
+      setModal(m => ({ ...m, isOpen: false }));
+      setLoading(true);
+      try {
+        const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const safeGuests = Math.max(minGuest || 1, Math.min(maxGuest || 20, Number(formData.totalGuests) || 1));
+        const sanitizedData = {
+          guestName:     sanitize(formData.guestName, 100),
+          email:         sanitize(formData.email, 100).toLowerCase(),
+          phone:         sanitize(formData.phone, 20),
+          totalGuests:   safeGuests,
+          guestsUnder18: Math.max(0, Math.min(safeGuests, Number(formData.guestsUnder18) || 0)),
+          hasPet:        Boolean(formData.hasPet),
+          ...(formData.notes && formData.notes.trim()
+            ? { notes: sanitize(formData.notes, 500) }
+            : {}),
+        };
+        recordAttempt();
+        await addDoc(collection(db, 'bookings'), {
+          apartmentName,
+          pricePerNight: Number(pricePerNight) || 0,
+          checkIn:  fmt(checkIn),
+          checkOut: fmt(checkOut),
+          nights:   calculation.nights,
+          ...sanitizedData,
+          totalAmount: calculation.totalPrice,
+          status:      'confirmed',
+          gdprConsent: true,
+          gdprConsentAt: new Date().toISOString(),
+          createdAt:     new Date().toISOString(),
+        });
+        setModal({
+          isOpen: true, type: 'success', title: t('success', 'Siker'),
+          message: t('booking_success_msg', { email: formData.email }),
+          onConfirm: () => { setModal(m => ({ ...m, isOpen: false })); navigate('/foglalasaim'); }
+        });
+      } catch (err) {
+        setModal({
+          isOpen: true, type: 'error', title: t('error', 'Hiba'),
+          message: t('booking_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false }))\
+        });
+      } finally { setLoading(false); }
     }
+  });
+};
+  
     // ─────────────────────────────────────────────────────────────────────────
 
     // Telefonszám validáció
