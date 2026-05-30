@@ -95,7 +95,7 @@ const resources = {
       "cancel": "Mégse",
 
       "booking_success_title": "Sikeres foglalás! 🎉",
-      "booking_success_msg": "Foglalásod rögzítettük! Visszaigazolást küldünk a(z) {{email}} e-mail-re.",
+      "booking_success_msg": "Foglalásod rögzítettük!",
 
       "booking_error_title": "Hiba történt",
       "booking_error_msg": "A foglalás rögzítése nem sikerült. Kérjük, próbáld újra!"
@@ -193,7 +193,7 @@ const resources = {
       "cancel": "Cancel",
 
       "booking_success_title": "Booking Confirmed! 🎉",
-      "booking_success_msg": "Your booking has been saved! A confirmation will be sent to {{email}}.",
+      "booking_success_msg": "Your booking has been saved!",
 
       "booking_error_title": "Something went wrong",
       "booking_error_msg": "The booking could not be saved. Please try again!"
@@ -291,7 +291,7 @@ const resources = {
       "cancel": "Abbrechen",
 
       "booking_success_title": "Buchung bestätigt! 🎉",
-      "booking_success_msg": "Ihre Buchung wurde gespeichert! Eine Bestätigung wird an {{email}} gesendet.",
+      "booking_success_msg": "Ihre Buchung wurde gespeichert!",
 
       "booking_error_title": "Ein Fehler ist aufgetreten",
       "booking_error_msg": "Die Buchung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut!"

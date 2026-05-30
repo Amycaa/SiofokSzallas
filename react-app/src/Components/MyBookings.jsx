@@ -102,7 +102,10 @@ export default function MyBookings() {
       onConfirm: async () => {
         closeModal();
         try {
-          await deleteDoc(doc(db, 'bookings', id));
+          await updateDoc(doc(db, 'bookings', id), {
+            status: 'cancelled',
+            cancelledAt: new Date().toISOString(),
+          });
           setBookings(prev => prev.filter(b => b.id !== id));
           setTimeout(() => {
             // ✅ JAVÍTVA: Általános siker fordítás lemondáskor

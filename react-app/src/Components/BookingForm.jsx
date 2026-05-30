@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from './firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import DatePicker from 'react-datepicker';
@@ -10,7 +10,41 @@ import ConfirmModal from './ConfirmModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import { getTheme, FONTS, COLORS } from './theme';
 
+// ── Kliens oldali rate limiter ────────────────────────────────────────────────
+const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_MS  = 10 * 60 * 1000;
+const RATE_KEY       = 'booking_attempts';
+
+function isRateLimited() {
+  try {
+    const raw = localStorage.getItem(RATE_KEY);
+    const attempts = raw ? JSON.parse(raw) : [];
+    const now = Date.now();
+    const recent = attempts.filter(ts => now - ts < RATE_LIMIT_MS);
+    localStorage.setItem(RATE_KEY, JSON.stringify(recent));
+    return recent.length >= RATE_LIMIT_MAX;
+  } catch { return false; }
+}
+
+function recordAttempt() {
+  try {
+    const raw = localStorage.getItem(RATE_KEY);
+    const attempts = raw ? JSON.parse(raw) : [];
+    attempts.push(Date.now());
+    localStorage.setItem(RATE_KEY, JSON.stringify(attempts));
+  } catch {}
+}
+
+// ── Input sanitizer ───────────────────────────────────────────────────────────
+function sanitize(str, maxLen = 200) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/<[^>]*>/g, '').replace(/[<>"'\`]/g, '').trim().slice(0, maxLen);
+}
+
 export default function BookingForm({ apartmentName, pricePerNight, maxGuest, minGuest }) {
+  // Honeypot: bot-ok kitöltik, emberek nem látják
+  const honeypotRef = useRef(null);
+  const formLoadTime = useRef(Date.now());
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [checkIn, setCheckIn] = useState(null);
@@ -119,6 +153,25 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
     e.preventDefault();
     if (!checkIn || !checkOut || calculation.nights <= 0) return;
 
+    // ── Bot / spam védelem ────────────────────────────────────────────────────
+    // 1. Honeypot: ha ki van töltve, bot töltötte ki
+    if (honeypotRef.current && honeypotRef.current.value) return;
+
+    // 2. Minimum kitöltési idő: botoknál szempillantás alatt van kész
+    if (Date.now() - formLoadTime.current < 3000) return;
+
+    // 3. Kliens oldali rate limit
+    if (isRateLimited()) {
+      setModal({
+        isOpen: true, type: 'error',
+        title: t('rate_limit_title', 'Túl sok kísérlet'),
+        message: t('rate_limit_msg', 'Rövid időn belül túl sok foglalási kísérletet észleltünk. Kérjük próbálja újra 10 perc múlva.'),
+        onConfirm: () => setModal(m => ({ ...m, isOpen: false })),
+      });
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Telefonszám validáció
     if (!isValidHungarianPhone(formData.phone)) {
       setModal({ isOpen: true, type: 'error', title: t('phone_error_title'), message: t('phone_error_msg'), onConfirm: () => setModal(m => ({ ...m, isOpen: false })) });
@@ -140,12 +193,23 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
         setLoading(true);
         try {
           const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          // Sanitize minden szöveges mezőt mentés előtt
+          const sanitizedData = {
+            guestName:      sanitize(formData.guestName, 100),
+            email:          sanitize(formData.email, 100).toLowerCase(),
+            phone:          sanitize(formData.phone, 20),
+            notes:          sanitize(formData.notes, 500),
+            totalGuests:    Math.max(minGuest || 1, Math.min(maxGuest || 20, Number(formData.totalGuests) || 1)),
+            guestsUnder18:  Math.max(0, Math.min(Number(formData.totalGuests), Number(formData.guestsUnder18) || 0)),
+            hasPet:         Boolean(formData.hasPet),
+          };
+          recordAttempt();
           await addDoc(collection(db, 'bookings'), {
             minGuest,
             maxGuest,
             apartmentName, pricePerNight,
             checkIn: fmt(checkIn), checkOut: fmt(checkOut),
-            nights: calculation.nights, ...formData,
+            nights: calculation.nights, ...sanitizedData,
             totalAmount: calculation.totalPrice, status: 'confirmed',
             gdprConsent: true,
             gdprConsentAt: new Date().toISOString(),
@@ -444,6 +508,17 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
               ⚠️ {gdprError}
             </p>
           )}
+        </div>
+
+        {/* Honeypot mező – botoknál automatikusan kitöltődik, embereknek láthatatlan */}
+        <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', opacity: 0, pointerEvents: 'none', tabIndex: -1, 'aria-hidden': 'true' }}>
+          <input
+            ref={honeypotRef}
+            type="text"
+            name="website"
+            autoComplete="off"
+            tabIndex={-1}
+          />
         </div>
 
         <button
