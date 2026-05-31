@@ -208,6 +208,8 @@ export default function MyBookings() {
         nights: liveNights, totalGuests: parseInt(editTotalGuests),
         guestsUnder18: parseInt(editGuestsUnder18), totalAmount: liveAmount,
         guestName: editName, phone: editPhone, notes: editNotes, hasPet: editHasPet,
+        status: 'confirmed',
+        pricePerNight: pricePerPersonPerNight,
       });
       setEditingBookingId(null);
       handleFetch();

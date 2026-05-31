@@ -158,10 +158,14 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
 
   const getCheckoutMaxDate = () => {
     if (!checkIn || disabledDates.length === 0) return null;
+    const checkInMidnight = new Date(checkIn);
+    checkInMidnight.setHours(0, 0, 0, 0);
     const nextDisabled = disabledDates
-      .filter(d => d.getTime() > checkIn.getTime())
+      .map(d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; })
+      .filter(d => d.getTime() > checkInMidnight.getTime())
       .sort((a, b) => a - b)[0];
-    return nextDisabled || null;
+    if (!nextDisabled) return null;
+    return nextDisabled;
   };
 
   const handleSubmit = (e) => {
@@ -342,6 +346,7 @@ export default function BookingForm({ apartmentName, pricePerNight, maxGuest, mi
               onChange={date => setCheckOut(date)}
               minDate={checkIn ? new Date(checkIn.getTime() + 86400000) : new Date()}
               maxDate={getCheckoutMaxDate()}
+              excludeDates={disabledDates}
               locale={getLocale()}
               dateFormat="yyyy-MM-dd"
               customInput={<input style={inputStyle} />}

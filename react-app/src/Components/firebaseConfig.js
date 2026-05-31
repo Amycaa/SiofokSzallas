@@ -15,10 +15,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('A_TE_RECAPTCHA_SITE_KEY'),
-  isTokenAutoRefreshEnabled: true,
-});
+// App Check csak éles környezetben
+if (window.location.hostname !== 'localhost') {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider('A_TE_RECAPTCHA_SITE_KEY'),
+    isTokenAutoRefreshEnabled: true,
+  });
+} else {
+  // Localhost: debug token engedélyezése
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+}
 
 export const db = getFirestore(app);
 export const auth = getAuth(app);
